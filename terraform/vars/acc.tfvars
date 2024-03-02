@@ -1,0 +1,10 @@
+environment     = "acc"
+vpcEnvironment  = "non-prod"
+maxContainers   = 4
+minContainers   = 1
+squad           = "hollywood"
+route53Zone     = "dpp-hollywood.dpgmedia.cloud"
+ecsCluster      = "sushi-acc"
+lbName          = "sushi-alb-acc"
+lbSGName        = "sushi-loadbalancer-sec-group-acc"
+promSGName      = "prometheus-container2"

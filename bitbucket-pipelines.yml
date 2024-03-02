@@ -1,0 +1,63 @@
+clone:
+  depth: 1
+
+options:
+  docker: true
+
+definitions:
+  steps:
+    - step: &build
+        image:
+          name: 466495510656.dkr.ecr.eu-west-1.amazonaws.com/awscli
+          aws: 
+            access-key: $AWS_ACCESS_KEY_ID
+            secret-key: $AWS_SECRET_ACCESS_KEY
+        name: Build
+        caches:
+          - docker
+        script:
+          - aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin 466495510656.dkr.ecr.eu-west-1.amazonaws.com
+          - IMAGE_EXISTS=$(docker manifest inspect 466495510656.dkr.ecr.eu-west-1.amazonaws.com/vc-pilot-backend:${BITBUCKET_COMMIT:0:7} &> /dev/null ; echo $?)
+          - >
+            if [ $IMAGE_EXISTS != 0 ]; then
+              docker build . -t 466495510656.dkr.ecr.eu-west-1.amazonaws.com/vc-pilot-backend:${BITBUCKET_COMMIT:0:7}
+              docker push 466495510656.dkr.ecr.eu-west-1.amazonaws.com/vc-pilot-backend:${BITBUCKET_COMMIT:0:7}
+            else
+              echo "Image 466495510656.dkr.ecr.eu-west-1.amazonaws.com/vc-pilot-backend:${BITBUCKET_COMMIT:0:7} was already built and pushed to ECR."
+            fi
+        artifacts:
+          - build/libs/*.jar
+
+    - step: &apply-terraform
+          image: hashicorp/terraform:1.6.6
+          script:
+            - cd terraform
+            - terraform init -no-color
+            - terraform workspace select prod -no-color
+            - TF_VAR_TAG=${BITBUCKET_COMMIT:0:7} terraform apply -no-color -auto-approve -var-file vars/prod.tfvars
+
+    - step: &waitEcsStable
+        image:
+          name: 466495510656.dkr.ecr.eu-west-1.amazonaws.com/awscli
+          aws: 
+            access-key: $AWS_ACCESS_KEY_ID
+            secret-key: $AWS_SECRET_ACCESS_KEY
+        clone:
+          enabled: false
+        caches:
+          - pip
+        script:
+          - aws ssm --region eu-west-1 put-parameter --name /vc-pilot-backend/prod --type 'String' --value "${BITBUCKET_COMMIT:0:7}" --overwrite
+          - aws ecs wait services-stable --cluster sushi-prod --services vc-pilot-backend --region eu-west-1
+
+pipelines:
+  branches:
+    master:
+      - step:
+          <<: *build
+      - step:
+          name: Apply Terraform prod
+          <<: *apply-terraform
+      - step:
+          <<: *waitEcsStable
+          name: Wait prod ecs stable
